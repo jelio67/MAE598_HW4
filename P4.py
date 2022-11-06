@@ -11,8 +11,8 @@ def h_x(x):
     x1 = x[0]
     x2 = x[1]
     x3 = x[2]
-    h1 = x1**2/4 + x2**2/5 + x3**2/25
-    h2 = x1 + x2 -x3
+    h1 = x1**2/4 + x2**2/5 + x3**2/25 - 1
+    h2 = x1 + x2 - x3
     h = np.array([[h1], [h2]])
     return h
 
@@ -20,6 +20,10 @@ def df_dd(d):
     x3 = d[0]
     df_d = np.array([2*x3])
     return df_d
+
+def Df_Dd(df_d, df_s, dh_s, dh_d):
+    Df_d = df_d - df_s @ np.linalg.inv(dh_s) @ dh_d
+    return Df_d
 
 def df_ds(s):
     x1 = s[0]
@@ -41,7 +45,7 @@ def dh_ds(s):
 def phi(alpha, t, d, s):
     x = np.array([s[0], s[1], d[0]])
     f = f_x(x)
-    phi = f - alpha*t*np.linalg.norm(df_dd(d))
+    phi = f - alpha * t * np.linalg.norm(Df_Dd(df_dd(d), df_ds(s), dh_ds(s), dh_dd(d)))
     return phi
 def Inexact_Line_Search(d, s, max_iter):
     iter = 0
@@ -49,8 +53,8 @@ def Inexact_Line_Search(d, s, max_iter):
     b = 0.5
     t = 0.3
 
-    d_i = d - alpha*df_dd(d)
-    s_i = s + alpha*np.transpose(np.linalg.inv(dh_ds(s))@dh_dd(d)@np.transpose(df_dd(d)))
+    d_i = d - alpha*Df_Dd(df_dd(d), df_ds(s), dh_ds(s), dh_dd(d))
+    s_i = s + alpha*np.transpose(np.linalg.inv(dh_ds(s))@dh_dd(d)@np.transpose(Df_Dd(df_dd(d), df_ds(s), dh_ds(s), dh_dd(d))))
     XN = np.array([s_i[0], s_i[1], d_i[0]])
     f_alpha = f_x(XN)
     phi_alpha = phi(alpha, t, d, s)
@@ -61,8 +65,8 @@ def Inexact_Line_Search(d, s, max_iter):
 
         alpha = b * alpha # reduce alpha & test again
 
-        d_i = d_i - alpha * df_dd(d_i)
-        s_i = s_i + alpha * np.transpose(np.linalg.inv(dh_ds(s_i)) @ dh_dd(d_i) @ np.transpose(df_dd(d_i)))
+        d_i = d_i - alpha * Df_Dd(df_dd(d_i), df_ds(s_i), dh_ds(s_i), dh_dd(d_i))
+        s_i = s_i + alpha * np.transpose(np.linalg.inv(dh_ds(s_i)) @ dh_dd(d_i) @ np.transpose(Df_Dd(df_dd(d_i), df_ds(s_i), dh_ds(s_i), dh_dd(d_i))))
         XN = np.array([s_i[0], s_i[1], d_i[0]])
         f_alpha = f_x(XN)
         phi_alpha = phi(alpha, t, d, s)
@@ -83,7 +87,7 @@ def solve(d, s, max_j):
         s_p1_1 = s[0] - q[0]
         s_p1_2 = s[1] - q[1]
         s_p1 = np.array([float(s_p1_1), float(s_p1_2)])
-        h_p1 = h_x(np.array([float(s[0]), float(s[1]), float(d[0])])) + dh_ds(s_o)@np.transpose(s_p1 - s)
+        h_p1 = h_x(np.array([float(s[0]), float(s[1]), float(d[0])])) + dh_ds(s)@np.transpose(s_p1 - s)
         s = s_p1
 
         j += 1
@@ -92,43 +96,47 @@ def solve(d, s, max_j):
 
 
 ''' GENERALIZED REDUCED GRADIENT ALGORITHM '''
-# 1) Define state and decision variables:
+# 1) Set state and decision variables:
 # let s = [x1, x2]
 # let d = [x3]
 
 # 2) Initialize x0 & set other params:
-x0 = np.array([-10*np.sqrt(61)/61, -10*np.sqrt(61)/61, 20*np.sqrt(61)/61]) # satisfies h(x0) = 0
-s = [x0[0], x0[1]] # grab state vars
-d = [x0[2]] # grab descision var(s)
-
-eps = 1e-3
-
+d = np.array([0]) # set decision variable, 0 should be in the feasible space
+s = np.array([-1, -1]) # give arbitrary state variables
 k = 0 # reduced gradient iteration number
 iter = 0 # line search iteration number
-max_k = 100 # reduced gradient max iterations
+max_k = 2000 # reduced gradient max iterations
 max_iter = 100 # line search max iterations
-max_j = 100 # Newton-Ralphson max iterations
+max_j = 100
+eps = 1e-3
+s = solve(d, s, max_j) # return feasible state variables
+x0 = np.array([float(s[0]), float(s[1]), float(d[0])]) # satisfies h(x0) = 0
+print('\ninitial h1 =', float(h_x(x0)[0]), '\ninitial h2 =', float(h_x(x0)[1]), '\n')
+s = [x0[0], x0[1]] # grab state vars
+d = [x0[2]] # grab decision var(s)
 
 # 3) Calculate initial reduced gradient:
-df_dd_kp1 = df_dd(d) - df_ds(s) @ np.linalg.inv(dh_ds(s)) @ dh_dd(d)
+Df_Dd_kp1 = Df_Dd(df_dd(d), df_ds(s), dh_ds(s), dh_dd(d))
 
 #4) Calculate this while loop:
-while np.linalg.norm(df_dd_kp1) > eps and k <= max_k:
+while np.linalg.norm(Df_Dd_kp1) > eps and k <= max_k:
     if k == max_k:
-        print('Max gradient descent iterations hit')
+        print('Max reduced gradient iterations hit -', max_k, 'iterations \n')
     alpha = Inexact_Line_Search(d, s, max_iter)
-    d = d - alpha * df_dd(d)
-    s_o = s + alpha * np.transpose(np.linalg.inv(dh_ds(s)) @ dh_dd(d) @ np.transpose(df_dd(d)))
+    # alpha = 0.1
+    d = d - alpha * Df_Dd(df_dd(d), df_ds(s), dh_ds(s), dh_dd(d))
+    s_o = s + alpha * np.transpose(np.linalg.inv(dh_ds(s)) @ dh_dd(d) @ np.transpose(Df_Dd(df_dd(d), df_ds(s), dh_ds(s), dh_dd(d))))
     s = solve(d, s_o, max_j)
-    df_dd_kp1 = df_dd(d) - df_ds(s) @ np.linalg.inv(dh_ds(s)) @ dh_dd(d)
+    Df_Dd_kp1 = Df_Dd(df_dd(d), df_ds(s), dh_ds(s), dh_dd(d))
 
     k += 1
 
-
 #5) Extract solution:
-print('x1 =', s[0], '\n x2 =', s[1], '\n x3 =', d[0])
-
-
+x = np.array([float(s[0]), float(s[1]), float(d[0])])
+print('x1 =', x[0], '\nx2 =', x[1], '\nx3 =', x[2], '\n')
+print('reduced gradient =', float(Df_Dd_kp1))
+print('h1 =', float(h_x(x)[0]), '\nh2 =', float(h_x(x)[1]), '\n')
+print('Value of f:', f_x(x))
 
 
 
